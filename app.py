@@ -1,3 +1,15 @@
+import sys
+import importlib.util
+import subprocess
+
+# Eğer 'pathlib' yanlışlıkla site-packages'ten geliyorsa (3. parti paket),
+# onu kaldırıp standart kütüphane pathlib'i kullanacağız.
+spec = importlib.util.find_spec("pathlib")
+if spec and spec.origin and "site-packages" in spec.origin:
+    subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "pathlib"], check=False)
+
+# Bundan sonra güvenle kullanabilirsin
+from pathlib import Path
 import streamlit as st
 import torch
 import cv2
@@ -7,7 +19,6 @@ from torchvision import transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import io
-from pathlib import Path
 import sys
 
 # ------------------------------------------------------------
