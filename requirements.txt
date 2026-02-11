@@ -1,25 +1,10 @@
 streamlit
-
-# Core
 numpy
 pandas
 pillow
-
-# OpenCV (Cloud uyumlu)
 opencv-python-headless==4.10.0.84
-
-# PyTorch
 torch
 torchvision
-
-# YOLOv5 utils için
 tqdm
 pyyaml
 requests
-scipy
-matplotlib
-seaborn
-psutil
-
-# YOLOv5 yeni sürüm dependency
-ultralytics
