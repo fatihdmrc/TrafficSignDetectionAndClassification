@@ -5,3 +5,5 @@ opencv-python-headless
 numpy
 pillow
 pandas
+ultralytics
+gitpython
