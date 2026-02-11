@@ -1,28 +1,8 @@
-# UI
 streamlit
-
-# Temel bilimsel paketler
 numpy
-pandas
 pillow
-
-# OpenCV (headless) - bulutta GUI yok
+pandas
 opencv-python-headless==4.10.0.84
-
-# PyTorch
 torch
 torchvision
-
-# YOLOv5/Ultralytics ekosistemi ve hub/indirme tarafı
 ultralytics
-gitpython
-requests
-pyyaml
-tqdm
-psutil
-
-# YOLOv5'in bazı yardımcı fonksiyonları (özellikle NMS/hesaplar) için sık gerekir
-scipy
-
-# YOLOv5'in bazı çizim/utility importları bazen ister (kullansan da kullanmasan da import edebiliyor)
-matplotlib
