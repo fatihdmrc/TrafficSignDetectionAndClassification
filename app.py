@@ -1,15 +1,21 @@
+# ============================================================
+# PATHLIB UYUMLULUK YAMASI (EN USTTE OLMALI!)
+# - Bazi ortamlar/weight dosyalari 'pathlib._local' arayabilir.
+# - Linux'ta WindowsPath/PosixPath uyumsuzlugu da cikabilir.
+# ============================================================
+import os
 import sys
-import importlib.util
-import subprocess
+import pathlib
 
-# Eğer 'pathlib' yanlışlıkla site-packages'ten geliyorsa (3. parti paket),
-# onu kaldırıp standart kütüphane pathlib'i kullanacağız.
-spec = importlib.util.find_spec("pathlib")
-if spec and spec.origin and "site-packages" in spec.origin:
-    subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "pathlib"], check=False)
+# 'pathlib._local' import ediliyorsa stdlib pathlib'e yönlendir
+sys.modules["pathlib._local"] = pathlib
 
-# Bundan sonra güvenle kullanabilirsin
-from pathlib import Path
+# Linux'ta WindowsPath nesnesi pickle'dan cikarsa patlayabilir.
+# Bu yüzden WindowsPath'i PosixPath'e esliyoruz.
+if os.name != "nt":
+    pathlib.WindowsPath = pathlib.PosixPath
+# ============================================================
+
 import streamlit as st
 import torch
 import cv2
@@ -19,7 +25,7 @@ from torchvision import transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import io
-import sys
+from pathlib import Path  # artık güvenli
 
 # ------------------------------------------------------------
 # 0) YOLOv5 KODUNU REPO ICINDEN IMPORT EDEBILMEK ICIN
@@ -29,7 +35,7 @@ import sys
 YOLOV5_DIR = Path(__file__).resolve().parent / "yolov5"
 sys.path.append(str(YOLOV5_DIR))
 
-# YOLOv5'in kendi modulleri
+# YOLOv5 modulleri (repo icinden)
 from models.common import DetectMultiBackend
 from utils.general import non_max_suppression, scale_boxes
 from utils.torch_utils import select_device
@@ -45,7 +51,6 @@ st.set_page_config(
 
 # ------------------------------------------------------------
 # 1) CNN MODEL MIMARISI
-#    - .pth weight dosyani yuklemek icin mimariyi ayni sekilde tanimlamaliyiz.
 # ------------------------------------------------------------
 class CNNModel(nn.Module):
     def __init__(self, num_classes=43):
@@ -84,7 +89,7 @@ class_names = [
 ]
 
 # ------------------------------------------------------------
-# 3) CNN ICIN DONUSTURME (32x32 + normalize)
+# 3) CNN ICIN DONUSTURME
 # ------------------------------------------------------------
 transform = transforms.Compose([
     transforms.Resize((32, 32)),
@@ -93,49 +98,39 @@ transform = transforms.Compose([
 ])
 
 # ------------------------------------------------------------
-# 4) YOLOv5 ICIN ON-ISLEME FONKSIYONU
-#    - YOLOv5 modeline vermek icin gorseli:
-#      BGR->RGB, yeniden boyutlandirma, normalizasyon, tensor'a cevirme yapacagiz.
-#    - Letterbox (oran koruyarak padding) YOLOv5 icinde var ama DetectMultiBackend'e
-#      dogrudan "raw image" gondermek yerine tensor hazirlayacagiz.
+# 4) YOLOv5 ICIN ON-ISLEME (LETTERBOX)
 # ------------------------------------------------------------
 def preprocess_for_yolo(img_bgr, img_size=640):
     """
     img_bgr: OpenCV BGR goruntu
     img_size: YOLO input boyutu (genelde 640)
-    return:
-      img: torch tensor (1,3,H,W) [0..1] float32
-      img0: orijinal bgr (cizim icin)
-    """
-    img0 = img_bgr.copy()
 
-    # BGR -> RGB
+    Dönenler:
+      img_tensor: (1,3,H,W) float [0..1]
+      img0_bgr   : orijinal (cizim icin)
+      img_hw     : model girdisinin (H,W)
+    """
+    img0_bgr = img_bgr.copy()
+
+    # BGR -> RGB (YOLOv5 genelde RGB ile calisir)
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-    # YOLOv5 letterbox fonksiyonu utils.augmentations icinde
-    # Import'u burada yapiyoruz ki başlangıçta gereksiz yük olmasın.
+    # Letterbox: oran koruyarak padding ile istenen boyuta getirir
     from utils.augmentations import letterbox
-
-    # Oran koruyarak pad ile 640'a getir
     img_lb = letterbox(img_rgb, new_shape=img_size, auto=False)[0]
 
     # HWC -> CHW
     img_chw = img_lb.transpose((2, 0, 1))
-
-    # contiguous array (PyTorch icin hizli bellek)
     img_chw = np.ascontiguousarray(img_chw)
 
     # numpy -> torch
-    img = torch.from_numpy(img_chw).float()
+    img_tensor = torch.from_numpy(img_chw).float()
+    img_tensor /= 255.0  # 0-255 -> 0-1
 
-    # 0-255 -> 0-1
-    img /= 255.0
+    if img_tensor.ndimension() == 3:
+        img_tensor = img_tensor.unsqueeze(0)
 
-    # batch dimension ekle (1,3,H,W)
-    if img.ndimension() == 3:
-        img = img.unsqueeze(0)
-
-    return img, img0, img_lb.shape[:2]  # (H,W) of letterboxed
+    return img_tensor, img0_bgr, (img_lb.shape[0], img_lb.shape[1])
 
 # ------------------------------------------------------------
 # 5) MODELLERI YUKLE (YOLOv5 + CNN)
@@ -150,10 +145,10 @@ def load_models():
     if not cnn_weights.exists():
         raise FileNotFoundError(f"CNN model bulunamadi: {cnn_weights.resolve()}")
 
-    # CPU kullanacagiz (Streamlit Cloud genelde GPU vermez)
+    # Streamlit Cloud genelde CPU
     device = select_device("cpu")
 
-    # YOLOv5 backend (pt/onnx vb. destekler)
+    # YOLOv5 backend (pt dosyasini torch.load ile yukler)
     yolo_model = DetectMultiBackend(str(yolo_weights), device=device)
     yolo_model.eval()
 
@@ -165,7 +160,7 @@ def load_models():
     return yolo_model, cnn_model
 
 # ------------------------------------------------------------
-# 6) ANA ISLEME: YOLO tespit -> crop -> CNN siniflandir -> ciz
+# 6) ANA ISLEME: YOLO tespit -> crop -> CNN -> ciz
 # ------------------------------------------------------------
 def process_image(
     image_pil,
@@ -177,18 +172,10 @@ def process_image(
     img_size=640,
     max_width=1280
 ):
-    """
-    image_pil: PIL Image (RGB)
-    yolo_conf_threshold: YOLO tespit guven esigi
-    yolo_iou_threshold : NMS icin IOU esigi
-    cnn_conf_threshold : CNN siniflandirma guven esigi
-    img_size: YOLO input boyutu (genelde 640)
-    """
-
     # PIL -> numpy RGB
     img_rgb = np.array(image_pil).astype(np.uint8)
 
-    # Cok buyuk goruntuyu kucult (server bellek/performans icin)
+    # Cok buyuk goruntuyu kucult (performans/bellek)
     if img_rgb.shape[1] > max_width:
         scale = max_width / img_rgb.shape[1]
         new_size = (int(img_rgb.shape[1] * scale), int(img_rgb.shape[0] * scale))
@@ -197,70 +184,55 @@ def process_image(
     # Cizim icin BGR
     img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
-    # ---------------------------
-    # YOLO ON-ISLEME
-    # ---------------------------
-    img_tensor, img0_bgr, lb_hw = preprocess_for_yolo(img_bgr, img_size=img_size)
-
-    # Modelin cihazina tasi (cpu)
+    # YOLO on-isleme
+    img_tensor, img0_bgr, _ = preprocess_for_yolo(img_bgr, img_size=img_size)
     img_tensor = img_tensor.to(yolo_model.device)
 
-    # ---------------------------
-    # YOLO INFERENCE
-    # ---------------------------
+    # YOLO inference
     with torch.no_grad():
         pred = yolo_model(img_tensor)
 
-    # ---------------------------
-    # NMS (Non-Maximum Suppression)
-    # - Aynı nesneye ait üst üste kutuları eler
-    # ---------------------------
+    # NMS
     pred = non_max_suppression(
         prediction=pred,
         conf_thres=float(yolo_conf_threshold),
         iou_thres=float(yolo_iou_threshold),
-        classes=None,      # sinif filtreleme yok
+        classes=None,
         agnostic=False,
-        max_det=1000
+        max_det=300
     )
 
-    det = pred[0]  # tek görsel
-
+    det = pred[0]  # tek goruntu
     detections_for_table = []
 
     if det is None or len(det) == 0:
         st.warning("YOLO modeli gorselde herhangi bir trafik tabelasi bulamadi.")
         return img0_bgr, detections_for_table
 
-    # det formatı: (N, 6) -> [x1,y1,x2,y2,conf,cls]
-    # Letterbox uygulanmış koordinatları orijinal görüntüye ölçekleyeceğiz.
-    # img_tensor'ın boyutu -> letterbox boyutu
+    # Letterbox boyutu: img_tensor (H,W)
     img_h, img_w = img_tensor.shape[2], img_tensor.shape[3]
-
-    # Orijinal (yeniden boyutlanmış) görüntü boyutu
+    # Orijinal (yeniden boyutlanmis) goruntu boyutu
     h0, w0 = img0_bgr.shape[:2]
 
-    # Kutuları orijinale ölçekle
+    # Kutuları orijinal goruntu boyutuna ölçekle
     det[:, :4] = scale_boxes((img_h, img_w), det[:, :4], (h0, w0)).round()
 
-    # ---------------------------
-    # Her tespit icin crop + CNN
-    # ---------------------------
+    # Her tespit
     for *xyxy, conf, cls in det.tolist():
         x1, y1, x2, y2 = map(int, xyxy)
         yolo_conf = float(conf)
         yolo_cls = int(cls)
 
-        # sınır düzelt
+        # Sinir kontrolü
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(w0, x2), min(h0, y2)
 
-        cropped_rgb = img_rgb[y1:y2, x1:x2]
-        if cropped_rgb.size == 0:
+        crop_rgb = img_rgb[y1:y2, x1:x2]
+        if crop_rgb.size == 0:
             continue
 
-        # CNN girişi
-        pil_crop = Image.fromarray(cropped_rgb)
+        # CNN sınıflandırma
+        pil_crop = Image.fromarray(crop_rgb)
         input_tensor = transform(pil_crop).unsqueeze(0)
 
         with torch.no_grad():
@@ -271,14 +243,13 @@ def process_image(
         cnn_conf = float(cnn_conf.item())
         pred_cls = int(pred_cls.item())
 
-        # CNN esigi
         if cnn_conf < float(cnn_conf_threshold):
             continue
 
         label_name = class_names[pred_cls] if 0 <= pred_cls < len(class_names) else f"Sinif {pred_cls}"
         label = f"{label_name} ({cnn_conf:.2f})"
 
-        # Cizim
+        # Çizim
         cv2.rectangle(img0_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
         cv2.putText(
             img0_bgr,
@@ -341,7 +312,7 @@ if uploaded_file is not None:
         processed_rgb = cv2.cvtColor(processed_bgr, cv2.COLOR_BGR2RGB)
         st.image(processed_rgb, caption="Islenmis Gorsel", use_container_width=True)
 
-        # Indirme butonu
+        # Indirme
         result_img = Image.fromarray(processed_rgb)
         buf = io.BytesIO()
         result_img.save(buf, format="PNG")
