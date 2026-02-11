@@ -5,6 +5,11 @@ pillow
 opencv-python-headless==4.10.0.84
 torch
 torchvision
-tqdm
+ultralytics
 pyyaml
 requests
+tqdm
+scipy
+matplotlib
+seaborn
+psutil
