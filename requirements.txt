@@ -1,15 +1,21 @@
-streamlit
-numpy
-pandas
-pillow
-opencv-python-headless==4.10.0.84
-torch
-torchvision
-ultralytics
-pyyaml
-requests
-tqdm
-scipy
-matplotlib
-seaborn
-psutil
+# 📦 requirements.txt (Sadeleştirilmiş)
+
+# --- Arayüz ---
+streamlit==1.32.0
+
+# --- Derin Öğrenme ---
+torch==2.1.2
+torchvision==0.16.2
+
+# --- Görüntü İşleme ---
+opencv-python-headless==4.9.0.80
+Pillow==10.2.0
+numpy==1.26.4
+
+# --- Yardımcı Kütüphaneler ---
+tqdm==4.66.2
+matplotlib==3.8.3
+
+# --- YOLOv5 için gerekli ---
+PyYAML==6.0.1
+scipy==1.11.4
