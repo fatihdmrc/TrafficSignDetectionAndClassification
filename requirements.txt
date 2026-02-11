@@ -5,4 +5,5 @@ pandas
 opencv-python-headless==4.10.0.84
 torch
 torchvision
-ultralytics
+tqdm
+pyyaml
